@@ -2,17 +2,17 @@
         body {
             background: #0a0f1a;
             font-family: 'Inter', sans-serif;
-            padding: 12px;
+            padding: 10px;
             color: #eef5ff;
             min-height: 100vh;
         }
         .dashboard { max-width: 1600px; margin: 0 auto; }
         
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
-        .title-section h1 { font-size: 1rem; background: linear-gradient(135deg, #60e0c0, #3080c0); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 2px; }
-        .title-section p { font-size: 0.65rem; color: #7a9aa8; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+        .title-section h1 { font-size: 1.1rem; background: linear-gradient(135deg, #60e0c0, #3080c0); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 2px; }
+        .title-section p { font-size: 1.07rem; color: #7a9aa8; }
         
-        .filter-bar { display: flex; gap: 8px; align-items: center; background: #0e1620; padding: 5px 12px; border-radius: 40px; border: 1px solid #2a3a4a; }
+        .filter-bar { display: flex; gap: 8px; align-items: center; background: #0e1620; padding: 5px 7px; border-radius: 40px; border: 1px solid #2a3a4a; }
         .filter-group { display: flex; align-items: center; gap: 6px; }
         .filter-group label { font-size: 0.7rem; color: #8aabba; }
         .filter-group select { background: #0a0f1a; border: 1px solid #2a5a5a; color: #eef5ff; padding: 5px 10px; border-radius: 20px; font-size: 0.7rem; cursor: pointer; outline: none; }
@@ -20,7 +20,7 @@
         .reset-btn { background: #1a3a3a; border: 1px solid #2a5a5a; padding: 5px 12px; border-radius: 20px; color: #aaccc0; font-size: 0.7rem; cursor: pointer; transition: all 0.2s; }
         .reset-btn:hover { background: #2a5a5a; color: white; }
         
-        .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 16px; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 10px; }
         .kpi-card { background: linear-gradient(145deg,#0f1820,#0a121a); border-radius: 12px; padding: 8px 12px; border-left: 3px solid; }
         .kpi-card:nth-child(1) { border-left-color: #2dd4bf; }
         .kpi-card:nth-child(2) { border-left-color: #facc15; }
@@ -30,7 +30,7 @@
         .kpi-value { font-size: 1.3rem; font-weight: 800; color: white; line-height: 1.2; }
         .kpi-sub { font-size: 0.6rem; color: #7a9aa8; margin-top: 4px; border-top: 1px solid #2a3a4a; padding-top: 3px; }
         
-        .chart-row { display: grid; grid-template-columns: 7fr 3fr; gap: 10px; margin-bottom: 16px; }
+        .chart-row { display: grid; grid-template-columns: 7fr 3fr; gap: 10px; margin-bottom: 10px; }
         .chart-line-section, .chart-bar-section { background: #0e1620; border-radius: 12px; padding: 8px 12px; border: 1px solid #2a3a4a; }
         .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #2a3a4a; flex-wrap: wrap; gap: 8px; }
         .chart-header h3 { font-size: 0.75rem; font-weight: 600; color: #c0e0e0; }
