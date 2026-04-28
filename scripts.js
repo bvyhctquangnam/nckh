@@ -1,147 +1,142 @@
 // ==================== QUẢN LÝ NCKH & SÁNG KIẾN ====================
+// Bản đồng bộ trực tiếp với Google Sheets - KHÔNG DÙNG CACHE
 
 const ADMIN_PASSWORD = "Admin123";
 
-// ⚠️ THAY URL NÀY BẰNG URL WEB APP CỦA BẠN (SAU KHI DEPLOY) ⚠️
-const API_URL = "https://script.google.com/macros/s/AKfycbwHb3T063nc6_nClAFJ2GBEQcvje_-pKwBVCkOqFGxCr99QUgeM7smb7SLZW-8d8WTzOg/exec";
+// URL Google Apps Script của bạn
+const API_URL = "https://script.google.com/macros/s/AKfycbxltzc7mUkjBy3Ney1140pcmivKddNJoVSNZHQRP-MvyXpulCbGdhlQkq2Ok7Ryib2_cw/exec";
 
 let researchData = [];
-let nextId = 1;
 let currentChart = null;
 let currentPieChart = null;
 let deleteTargetId = null;
 let pendingAction = null;
-let pendingId = null;
 
-// ==================== KHỞI TẠO & LOAD DỮ LIỆU ====================
+// Proxy variables
+let proxyFrame = null;
+let requestId = 0;
+let pendingRequests = {};
+
+// ==================== PROXY ĐỂ VƯỢT CORS ====================
+
+function initProxy() {
+    return new Promise((resolve) => {
+        if (proxyFrame) {
+            resolve();
+            return;
+        }
+        
+        proxyFrame = document.createElement('iframe');
+        proxyFrame.src = 'proxy.html';
+        proxyFrame.style.display = 'none';
+        document.body.appendChild(proxyFrame);
+        
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'PROXY_READY') {
+                console.log('Proxy ready');
+                resolve();
+            } else if (event.data.type === 'FETCH_RESULT') {
+                if (pendingRequests[event.data.requestId]) {
+                    pendingRequests[event.data.requestId].resolve(event.data.data);
+                    delete pendingRequests[event.data.requestId];
+                }
+            } else if (event.data.type === 'FETCH_ERROR') {
+                if (pendingRequests[event.data.requestId]) {
+                    pendingRequests[event.data.requestId].reject(new Error(event.data.error));
+                    delete pendingRequests[event.data.requestId];
+                }
+            }
+        });
+    });
+}
+
+async function fetchViaProxy(url, options = {}) {
+    return new Promise((resolve, reject) => {
+        const id = ++requestId;
+        pendingRequests[id] = { resolve, reject };
+        
+        if (!proxyFrame) {
+            reject(new Error('Proxy not initialized'));
+            return;
+        }
+        
+        proxyFrame.contentWindow.postMessage({
+            type: 'FETCH_DATA',
+            requestId: id,
+            url: url,
+            method: options.method || 'GET',
+            headers: options.headers || {},
+            body: options.body || null
+        }, '*');
+        
+        setTimeout(() => {
+            if (pendingRequests[id]) {
+                pendingRequests[id].reject(new Error('Request timeout'));
+                delete pendingRequests[id];
+            }
+        }, 30000);
+    });
+}
+
+// ==================== ĐỌC DỮ LIỆU TRỰC TIẾP TỪ GOOGLE SHEETS ====================
 
 async function fetchDataFromSheet() {
     try {
         showLoading(true);
-        
-        // Thêm timestamp để tránh cache
         const url = `${API_URL}?t=${Date.now()}`;
-        const response = await fetch(url, {
-            method: 'GET',
-            mode: 'cors',
-            cache: 'no-cache'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
+        const result = await fetchViaProxy(url);
         
         if (result.success && result.data) {
             researchData = result.data;
-            researchData = researchData.filter(r => r && typeof r === 'object');
             
-            if (researchData.length > 0) {
-                nextId = Math.max(...researchData.map(r => parseInt(r.id))) + 1;
-            } else {
-                nextId = 1;
-            }
-            
+            // Đảm bảo mỗi item có cấu trúc đúng
             researchData.forEach(item => {
                 if (!item.extra) item.extra = {};
                 if (!item.extra.files) item.extra.files = [];
                 if (!item.extra.members) item.extra.members = [];
+                // Chuyển đổi year sang number nếu cần
+                if (item.year) item.year = parseInt(item.year);
+                if (item.id) item.id = parseInt(item.id);
             });
             
-            saveToLocalStorage();
+            console.log('Đã tải từ Google Sheets:', researchData.length, 'bản ghi');
+            return true;
         } else {
-            console.error('API returned error:', result);
-            loadFromLocalStorage();
+            console.error('Lỗi khi tải từ Sheets:', result);
+            return false;
         }
     } catch (e) {
         console.error('Fetch error:', e);
-        loadFromLocalStorage();
+        return false;
     } finally {
         showLoading(false);
     }
 }
 
-function saveToLocalStorage() {
-    localStorage.setItem('researchData', JSON.stringify(researchData));
-    localStorage.setItem('nextId', nextId);
-}
-
-function loadFromLocalStorage() {
-    const saved = localStorage.getItem('researchData');
-    if (saved) {
-        researchData = JSON.parse(saved);
-        nextId = parseInt(localStorage.getItem('nextId')) || (researchData.length + 1);
-        researchData.forEach(item => {
-            if (!item.extra) item.extra = {};
-            if (!item.extra.files) item.extra.files = [];
-            if (!item.extra.members) item.extra.members = [];
-        });
-    } else {
-        // Dữ liệu mẫu ban đầu
-        researchData = [
-            { id: 1, year: 2025, name: "Nghiên cứu mất ngủ", type: "NCKH", author: "Nguyễn Quang Ngọc", decisionNumber: "", fileLink: "", extra: { members: [{ name: "Trần Thị B", percent: "30" }, { name: "Lê Văn C", percent: "20" }], domain: "Điều trị", specialty: "Y học cổ truyền", registerDate: new Date().toISOString(), resultDuyet: "Thông qua", resultNghiemThu: "Thông qua", unit: "Bệnh viện Y học cổ truyền Quảng Nam", level: "Cơ sở", files: [] } },
-            { id: 2, year: 2024, name: "Nghiên cứu G về y học cổ truyền", type: "SK", author: "Nguyễn Văn Dũng", decisionNumber: "QĐ/G/2024", fileLink: "#", extra: {} },
-            { id: 3, year: 2022, name: "Sáng kiến B: Cải tiến quy trình", type: "SK", author: "Nguyễn Văn Dũng", extra: {} },
-            { id: 4, year: 2021, name: "Nghiên cứu A về phục hồi chức năng", type: "SK", author: "Nguyễn Văn A", decisionNumber: "QĐ/A/2021", fileLink: "#", extra: {} },
-            { id: 5, year: 2021, name: "Nghiên cứu C về hiệu quả điều trị", type: "SK", author: "Nguyễn Thị Ánh Quang", fileLink: "#", extra: {} },
-            { id: 6, year: 2020, name: "Nghiên cứu đau lưng", type: "NCKH", author: "Cao Văn Trọng", extra: {} }
-        ];
-        nextId = 7;
-        researchData.forEach(item => {
-            if (!item.extra) item.extra = {};
-            if (!item.extra.files) item.extra.files = [];
-            if (!item.extra.members) item.extra.members = [];
-        });
-        saveToLocalStorage();
-    }
-}
-
-// ==================== CRUD VỚI SHEET ====================
+// ==================== THÊM/SỬA/XÓA TRÊN GOOGLE SHEETS ====================
 
 async function callAPI(action, item = null, id = null) {
     try {
         showLoading(true);
         
-        let body = { action: action };
+        const body = { action: action };
         if (item) body.item = item;
         if (id) body.id = id;
         
-        const response = await fetch(API_URL, {
+        const result = await fetchViaProxy(API_URL, {
             method: "POST",
-            mode: 'cors',
-            headers: { 
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
         });
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
+        console.log(`API ${action} result:`, result);
         return result;
-        
     } catch (e) {
         console.error(`${action} error:`, e);
         return { success: false, error: e.toString() };
     } finally {
         showLoading(false);
     }
-}
-
-async function addToSheet(item) {
-    return await callAPI("add", item);
-}
-
-async function updateToSheet(item) {
-    return await callAPI("update", item);
-}
-
-async function deleteFromSheet(id) {
-    return await callAPI("delete", null, id);
 }
 
 // ==================== THÀNH VIÊN ====================
@@ -254,7 +249,7 @@ function showLoading(show) {
 
 function escapeHtml(s) {
     if (!s) return '';
-    return s.replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
+    return String(s).replace(/[&<>]/g, m => m === '&' ? '&amp;' : m === '<' ? '&lt;' : '&gt;');
 }
 
 function generateProjectCode(year, id) {
@@ -265,24 +260,41 @@ function generateProjectCode(year, id) {
 function getStats() {
     const total = researchData.length;
     const nckh = researchData.filter(r => r.type === 'NCKH').length;
-    const skkt = researchData.filter(r => r.type === 'SK').length;
-    const years = [...new Set(researchData.map(r => r.year))].sort();
+    const skkt = researchData.filter(r => r.type === 'SKKT').length;
+    const years = [...new Set(researchData.map(r => r.year))].sort((a, b) => a - b);
     const byYear = years.map(y => ({
         year: y,
         total: researchData.filter(r => r.year === y).length,
         nckh: researchData.filter(r => r.year === y && r.type === 'NCKH').length,
-        skkt: researchData.filter(r => r.year === y && r.type === 'SK').length
+        skkt: researchData.filter(r => r.year === y && r.type === 'SKKT').length
     }));
     return { total, nckh, skkt, byYear };
 }
 
 function updateKPI() {
     const s = getStats();
-    document.getElementById('kpiGrid').innerHTML = `
-        <div class="kpi-card"><div class="kpi-title"><i class="fas fa-tasks"></i> Tổng số</div><div class="kpi-value">${s.total}</div></div>
-        <div class="kpi-card"><div class="kpi-title"><i class="fas fa-flask"></i> Nghiên cứu KH</div><div class="kpi-value">${s.nckh}</div><div class="kpi-sub">${s.total ? ((s.nckh / s.total) * 100).toFixed(1) : 0}%</div></div>
-        <div class="kpi-card"><div class="kpi-title"><i class="fas fa-lightbulb"></i> Sáng kiến</div><div class="kpi-value">${s.skkt}</div><div class="kpi-sub">${s.total ? ((s.skkt / s.total) * 100).toFixed(1) : 0}%</div></div>
-        <div class="kpi-card"><div class="kpi-title"><i class="fas fa-chart-line"></i> Năm gần nhất</div><div class="kpi-value">${s.byYear.length ? Math.max(...s.byYear.map(y => y.year)) : 0}</div></div>
+    const kpiGrid = document.getElementById('kpiGrid');
+    if (!kpiGrid) return;
+    
+    kpiGrid.innerHTML = `
+        <div class="kpi-card">
+            <div class="kpi-title"><i class="fas fa-tasks"></i> Tổng số</div>
+            <div class="kpi-value">${s.total}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title"><i class="fas fa-flask"></i> Nghiên cứu KH</div>
+            <div class="kpi-value">${s.nckh}</div>
+            <div class="kpi-sub">${s.total ? ((s.nckh / s.total) * 100).toFixed(1) : 0}%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title"><i class="fas fa-lightbulb"></i> Sáng kiến</div>
+            <div class="kpi-value">${s.skkt}</div>
+            <div class="kpi-sub">${s.total ? ((s.skkt / s.total) * 100).toFixed(1) : 0}%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-title"><i class="fas fa-chart-line"></i> Năm gần nhất</div>
+            <div class="kpi-value">${s.byYear.length ? Math.max(...s.byYear.map(y => y.year)) : 0}</div>
+        </div>
     `;
 }
 
@@ -291,36 +303,72 @@ function updateCharts(metric = 'total') {
     const years = s.byYear.map(y => y.year);
     const data = metric === 'total' ? s.byYear.map(y => y.total) : metric === 'nckh' ? s.byYear.map(y => y.nckh) : s.byYear.map(y => y.skkt);
     const colors = { total: '#2dd4bf', nckh: '#a78bfa', skkt: '#facc15' };
+    const labels = { total: 'Tổng', nckh: 'Nghiên cứu KH', skkt: 'Sáng kiến' };
+    
+    const trendChart = document.getElementById('trendChart');
+    if (!trendChart) return;
     
     if (currentChart) currentChart.destroy();
-    const ctx = document.getElementById('trendChart').getContext('2d');
-    currentChart = new Chart(ctx, {
+    currentChart = new Chart(trendChart, {
         type: 'line',
         data: {
             labels: years,
             datasets: [{
-                label: metric === 'total' ? 'Tổng' : metric === 'nckh' ? 'Nghiên cứu KH' : 'Sáng kiến',
+                label: labels[metric],
                 data: data,
                 borderColor: colors[metric],
                 backgroundColor: colors[metric] + '20',
                 borderWidth: 2,
                 tension: 0.3,
                 fill: true,
-                pointRadius: 3
+                pointRadius: 3,
+                pointBackgroundColor: colors[metric]
             }]
         },
-        options: { responsive: true, maintainAspectRatio: true, scales: { y: { ticks: { stepSize: 1 } } } }
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { labels: { color: '#eef5ff' } }
+            },
+            scales: {
+                y: { 
+                    ticks: { stepSize: 1, color: '#8aabba' },
+                    grid: { color: '#1a3a3a' }
+                },
+                x: { 
+                    ticks: { color: '#8aabba' },
+                    grid: { color: '#1a3a3a' }
+                }
+            }
+        }
     });
     
+    const pieChart = document.getElementById('pieChart');
+    if (!pieChart) return;
+    
     if (currentPieChart) currentPieChart.destroy();
-    const pieCtx = document.getElementById('pieChart').getContext('2d');
-    currentPieChart = new Chart(pieCtx, {
+    currentPieChart = new Chart(pieChart, {
         type: 'doughnut',
         data: {
             labels: ['Nghiên cứu khoa học', 'Sáng kiến'],
-            datasets: [{ data: [s.nckh, s.skkt], backgroundColor: ['#a78bfa', '#facc15'] }]
+            datasets: [{ 
+                data: [s.nckh, s.skkt], 
+                backgroundColor: ['#a78bfa', '#facc15'],
+                borderWidth: 0
+            }]
         },
-        options: { cutout: '55%', plugins: { legend: { position: 'bottom' } } }
+        options: { 
+            cutout: '55%', 
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: { 
+                legend: { 
+                    position: 'bottom',
+                    labels: { color: '#eef5ff' }
+                } 
+            }
+        }
     });
 }
 
@@ -333,12 +381,20 @@ function renderTable() {
     filtered.sort((a, b) => b.year - a.year);
     
     const tbody = document.getElementById('researchTableBody');
+    if (!tbody) return;
+    
     tbody.innerHTML = filtered.map((item, idx) => `
         <tr>
             <td>${idx + 1}</td>
             <td>${item.year}</td>
-            <td style="text-align:left;"><span class="clickable-name" onclick="showDetail(${item.id})">${escapeHtml(item.name)}</span></td>
-            <td><span class="badge ${item.type === 'NCKH' ? 'badge-nckh' : 'badge-skkt'}">${item.type === 'NCKH' ? 'Nghiên cứu KH' : 'Sáng kiến'}</span></td>
+            <td style="text-align:left;">
+                <span class="clickable-name" onclick="showDetail(${item.id})">${escapeHtml(item.name)}</span>
+            </td>
+            <td>
+                <span class="badge ${item.type === 'NCKH' ? 'badge-nckh' : 'badge-skkt'}">
+                    ${item.type === 'NCKH' ? 'Nghiên cứu KH' : 'Sáng kiến'}
+                </span>
+            </td>
             <td>${escapeHtml(item.author)}</td>
             <td>${item.decisionNumber || '—'}</td>
             <td>${item.fileLink && item.fileLink !== '#' && item.fileLink !== '' ? `<a href="${item.fileLink}" class="file-link" target="_blank"><i class="fas fa-download"></i> Tải</a>` : '—'}</td>
@@ -383,14 +439,17 @@ function showDetail(id) {
     if (isNCKH) {
         scienceHtml = `
             <div class="detail-item"><div class="detail-label">MS đề tài</div><div class="detail-value"><strong style="color:#2dd4bf">${escapeHtml(code)}</strong></div></div>
-            <div class="detail-item"><div class="detail-label">Ngày đăng ký</div><div class="detail-value">${extra.registerDate ? new Date(extra.registerDate).toLocaleString() : 'Chưa cập nhật'}</div></div>
+            <div class="detail-item"><div class="detail-label">Ngày đăng ký</div><div class="detail-value">${extra.registerDate ? new Date(extra.registerDate).toLocaleString('vi-VN') : 'Chưa cập nhật'}</div></div>
             <div class="detail-item"><div class="detail-label">Lĩnh vực</div><div class="detail-value">${escapeHtml(extra.domain || 'Điều trị')}</div></div>
             <div class="detail-item"><div class="detail-label">Chuyên ngành</div><div class="detail-value">${escapeHtml(extra.specialty || 'Y học cổ truyền')}</div></div>
             ${membersHtml}
         `;
     }
     
-    document.getElementById('detailBody').innerHTML = `
+    const detailBody = document.getElementById('detailBody');
+    if (!detailBody) return;
+    
+    detailBody.innerHTML = `
         <div class="detail-grid">
             ${scienceHtml}
             <div class="detail-item"><div class="detail-label">Chủ nhiệm</div><div class="detail-value">${escapeHtml(item.author)}</div></div>
@@ -402,83 +461,129 @@ function showDetail(id) {
         </div>
         ${filesHtml}
     `;
-    document.getElementById('detailModal').style.display = 'flex';
+    
+    const detailModal = document.getElementById('detailModal');
+    if (detailModal) detailModal.style.display = 'flex';
 }
 
 // ==================== MODAL & MẬT KHẨU ====================
 
-function showPasswordModal(action, id = null) {
+function showPasswordModal(action) {
     pendingAction = action;
-    pendingId = id;
-    document.getElementById('passwordInput').value = '';
-    document.getElementById('passwordError').style.display = 'none';
-    document.getElementById('passwordModal').style.display = 'flex';
+    const passwordInput = document.getElementById('passwordInput');
+    const passwordError = document.getElementById('passwordError');
+    const passwordModal = document.getElementById('passwordModal');
+    
+    if (passwordInput) passwordInput.value = '';
+    if (passwordError) passwordError.style.display = 'none';
+    if (passwordModal) passwordModal.style.display = 'flex';
 }
 
 function verifyPassword() {
-    if (document.getElementById('passwordInput').value === ADMIN_PASSWORD) {
-        document.getElementById('passwordModal').style.display = 'none';
+    const passwordInput = document.getElementById('passwordInput');
+    const passwordError = document.getElementById('passwordError');
+    
+    if (passwordInput && passwordInput.value === ADMIN_PASSWORD) {
+        const passwordModal = document.getElementById('passwordModal');
+        if (passwordModal) passwordModal.style.display = 'none';
+        
         if (pendingAction === 'save') saveItemToData();
         else if (pendingAction === 'delete') executeDeleteItem();
         pendingAction = null;
     } else {
-        document.getElementById('passwordError').style.display = 'block';
+        if (passwordError) passwordError.style.display = 'block';
     }
 }
 
 function closePasswordModal() {
-    document.getElementById('passwordModal').style.display = 'none';
+    const passwordModal = document.getElementById('passwordModal');
+    if (passwordModal) passwordModal.style.display = 'none';
     pendingAction = null;
 }
 
 // ==================== THÊM/SỬA/XÓA ====================
 
 function openAddModal() {
-    document.getElementById('modalTitle').innerHTML = '<i class="fas fa-plus-circle"></i> Thêm mới';
-    document.getElementById('editId').value = '';
-    document.getElementById('researchForm').reset();
-    document.getElementById('year').value = new Date().getFullYear();
-    document.getElementById('projectCode').value = '';
-    document.getElementById('registerDate').value = '';
-    document.getElementById('domain').value = 'Điều trị';
-    document.getElementById('specialty').value = 'Y học cổ truyền';
-    document.getElementById('unit').value = 'Bệnh viện Y học cổ truyền Quảng Nam';
-    document.getElementById('level').value = 'Cơ sở';
-    document.getElementById('resultDuyet').value = 'Thông qua';
-    document.getElementById('resultNghiemThu').value = 'Thông qua';
-    document.getElementById('filesList').innerHTML = '';
-    document.getElementById('membersList').innerHTML = '';
+    const modalTitle = document.getElementById('modalTitle');
+    const editId = document.getElementById('editId');
+    const researchForm = document.getElementById('researchForm');
+    const year = document.getElementById('year');
+    const projectCode = document.getElementById('projectCode');
+    const registerDate = document.getElementById('registerDate');
+    const domain = document.getElementById('domain');
+    const specialty = document.getElementById('specialty');
+    const unit = document.getElementById('unit');
+    const level = document.getElementById('level');
+    const resultDuyet = document.getElementById('resultDuyet');
+    const resultNghiemThu = document.getElementById('resultNghiemThu');
+    const filesList = document.getElementById('filesList');
+    const membersList = document.getElementById('membersList');
+    const researchModal = document.getElementById('researchModal');
+    
+    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-plus-circle"></i> Thêm mới';
+    if (editId) editId.value = '';
+    if (researchForm) researchForm.reset();
+    if (year) year.value = new Date().getFullYear();
+    if (projectCode) projectCode.value = '';
+    if (registerDate) registerDate.value = '';
+    if (domain) domain.value = 'Điều trị';
+    if (specialty) specialty.value = 'Y học cổ truyền';
+    if (unit) unit.value = 'Bệnh viện Y học cổ truyền Quảng Nam';
+    if (level) level.value = 'Cơ sở';
+    if (resultDuyet) resultDuyet.value = 'Thông qua';
+    if (resultNghiemThu) resultNghiemThu.value = 'Thông qua';
+    if (filesList) filesList.innerHTML = '';
+    if (membersList) membersList.innerHTML = '';
+    
     toggleScienceFields();
-    document.getElementById('researchModal').style.display = 'flex';
+    if (researchModal) researchModal.style.display = 'flex';
 }
 
 function requestEdit(id) {
     const item = researchData.find(r => r.id == id);
     if (!item) return;
     
-    document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit"></i> Chỉnh sửa';
-    document.getElementById('editId').value = item.id;
-    document.getElementById('year').value = item.year;
-    document.getElementById('name').value = item.name;
-    document.getElementById('type').value = item.type;
-    document.getElementById('author').value = item.author;
-    document.getElementById('decisionNumber').value = item.decisionNumber || '';
-    document.getElementById('fileLink').value = item.fileLink || '';
+    const modalTitle = document.getElementById('modalTitle');
+    const editId = document.getElementById('editId');
+    const year = document.getElementById('year');
+    const name = document.getElementById('name');
+    const type = document.getElementById('type');
+    const author = document.getElementById('author');
+    const decisionNumber = document.getElementById('decisionNumber');
+    const fileLink = document.getElementById('fileLink');
+    const projectCode = document.getElementById('projectCode');
+    const registerDate = document.getElementById('registerDate');
+    const domain = document.getElementById('domain');
+    const specialty = document.getElementById('specialty');
+    const unit = document.getElementById('unit');
+    const level = document.getElementById('level');
+    const resultDuyet = document.getElementById('resultDuyet');
+    const resultNghiemThu = document.getElementById('resultNghiemThu');
+    const researchModal = document.getElementById('researchModal');
+    
+    if (modalTitle) modalTitle.innerHTML = '<i class="fas fa-edit"></i> Chỉnh sửa';
+    if (editId) editId.value = item.id;
+    if (year) year.value = item.year;
+    if (name) name.value = item.name;
+    if (type) type.value = item.type;
+    if (author) author.value = item.author;
+    if (decisionNumber) decisionNumber.value = item.decisionNumber || '';
+    if (fileLink) fileLink.value = item.fileLink || '';
     
     const extra = item.extra || {};
-    document.getElementById('projectCode').value = extra.projectCode || '';
-    document.getElementById('registerDate').value = extra.registerDate ? extra.registerDate.slice(0, 16) : '';
-    document.getElementById('domain').value = extra.domain || 'Điều trị';
-    document.getElementById('specialty').value = extra.specialty || 'Y học cổ truyền';
-    document.getElementById('unit').value = extra.unit || 'Bệnh viện Y học cổ truyền Quảng Nam';
-    document.getElementById('level').value = extra.level || 'Cơ sở';
-    document.getElementById('resultDuyet').value = extra.resultDuyet || 'Thông qua';
-    document.getElementById('resultNghiemThu').value = extra.resultNghiemThu || 'Thông qua';
+    if (projectCode) projectCode.value = extra.projectCode || '';
+    if (registerDate) registerDate.value = extra.registerDate ? extra.registerDate.slice(0, 16) : '';
+    if (domain) domain.value = extra.domain || 'Điều trị';
+    if (specialty) specialty.value = extra.specialty || 'Y học cổ truyền';
+    if (unit) unit.value = extra.unit || 'Bệnh viện Y học cổ truyền Quảng Nam';
+    if (level) level.value = extra.level || 'Cơ sở';
+    if (resultDuyet) resultDuyet.value = extra.resultDuyet || 'Thông qua';
+    if (resultNghiemThu) resultNghiemThu.value = extra.resultNghiemThu || 'Thông qua';
     
     loadFilesToForm(extra.files || []);
     loadMembersToForm(extra.members || []);
     toggleScienceFields();
-    document.getElementById('researchModal').style.display = 'flex';
+    if (researchModal) researchModal.style.display = 'flex';
 }
 
 function requestSave(event) {
@@ -520,53 +625,55 @@ async function saveItemToData() {
             id: parseInt(id),
             year, name, type, author, decisionNumber, fileLink,
             extra: extraData,
-            createdAt: researchData.find(r => r.id == id)?.createdAt || new Date().toISOString()
+            createdAt: new Date().toISOString()
         };
         result = await updateToSheet(updatedItem);
-        if (result.success) {
-            const idx = researchData.findIndex(r => r.id == id);
-            if (idx !== -1) researchData[idx] = updatedItem;
-            saveToLocalStorage();
-        }
     } else {
         // Thêm mới
         const newItem = { year, name, type, author, decisionNumber, fileLink, extra: extraData };
         result = await addToSheet(newItem);
-        if (result.success && result.id) {
-            newItem.id = result.id;
-            researchData.push(newItem);
-            nextId = Math.max(nextId, result.id + 1);
-            saveToLocalStorage();
-        }
     }
     
     if (result?.success) {
         closeModal();
-        await refreshAll();
+        await refreshAll(); // Tải lại dữ liệu mới từ Sheets
         alert(id ? 'Cập nhật thành công!' : 'Thêm mới thành công!');
     } else {
         alert('Lỗi: ' + (result?.error || 'Không thể lưu dữ liệu'));
     }
 }
 
+async function addToSheet(item) {
+    return await callAPI("add", item);
+}
+
+async function updateToSheet(item) {
+    return await callAPI("update", item);
+}
+
+async function deleteFromSheet(id) {
+    return await callAPI("delete", null, id);
+}
+
 function requestDelete(id, name) {
     deleteTargetId = id;
-    document.getElementById('deleteItemName').innerText = name;
-    document.getElementById('deleteModal').style.display = 'flex';
+    const deleteItemName = document.getElementById('deleteItemName');
+    const deleteModal = document.getElementById('deleteModal');
+    if (deleteItemName) deleteItemName.innerText = name;
+    if (deleteModal) deleteModal.style.display = 'flex';
 }
 
 function confirmDeleteRequest() {
-    document.getElementById('deleteModal').style.display = 'none';
-    showPasswordModal('delete', deleteTargetId);
+    const deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) deleteModal.style.display = 'none';
+    showPasswordModal('delete');
 }
 
 async function executeDeleteItem() {
     if (deleteTargetId) {
         const result = await deleteFromSheet(deleteTargetId);
         if (result?.success) {
-            researchData = researchData.filter(r => r.id != deleteTargetId);
-            saveToLocalStorage();
-            await refreshAll();
+            await refreshAll(); // Tải lại dữ liệu mới từ Sheets
             alert('Xóa thành công!');
         } else {
             alert('Lỗi: ' + (result?.error || 'Không thể xóa'));
@@ -578,16 +685,20 @@ async function executeDeleteItem() {
 // ==================== RESET & REFRESH ====================
 
 function closeModal() {
-    document.getElementById('researchModal').style.display = 'none';
+    const researchModal = document.getElementById('researchModal');
+    if (researchModal) researchModal.style.display = 'none';
 }
 
 function closeDeleteModal() {
-    document.getElementById('deleteModal').style.display = 'none';
+    const deleteModal = document.getElementById('deleteModal');
+    if (deleteModal) deleteModal.style.display = 'none';
 }
 
 function resetFilters() {
-    document.getElementById('yearFilter').value = 'all';
-    document.getElementById('typeFilter').value = 'all';
+    const yearFilter = document.getElementById('yearFilter');
+    const typeFilter = document.getElementById('typeFilter');
+    if (yearFilter) yearFilter.value = 'all';
+    if (typeFilter) typeFilter.value = 'all';
     renderTable();
 }
 
@@ -598,39 +709,74 @@ async function refreshAll() {
     updateCharts(activeTab ? activeTab.dataset.metric : 'total');
     renderTable();
     
+    // Cập nhật dropdown năm
     const years = [...new Set(researchData.map(r => r.year))].sort((a, b) => b - a);
     const yearSelect = document.getElementById('yearFilter');
-    yearSelect.innerHTML = '<option value="all">Tất cả</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+    if (yearSelect) {
+        const currentValue = yearSelect.value;
+        yearSelect.innerHTML = '<option value="all">Tất cả</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+        if (currentValue && years.includes(parseInt(currentValue))) {
+            yearSelect.value = currentValue;
+        }
+    }
 }
 
 // ==================== KHỞI TẠO ====================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('Khởi tạo ứng dụng...');
+    await initProxy();
     await refreshAll();
+    console.log('Đã khởi tạo xong! Tổng số bản ghi:', researchData.length);
     
-    document.getElementById('openAddModalBtn').onclick = openAddModal;
-    document.getElementById('resetFilterBtn').onclick = resetFilters;
-    document.getElementById('yearFilter').onchange = renderTable;
-    document.getElementById('typeFilter').onchange = renderTable;
-    document.getElementById('researchForm').onsubmit = requestSave;
-    document.getElementById('confirmDeleteBtn').onclick = confirmDeleteRequest;
-    document.getElementById('cancelPasswordBtn').onclick = closePasswordModal;
-    document.getElementById('confirmPasswordBtn').onclick = verifyPassword;
+    // Gán sự kiện
+    const openAddModalBtn = document.getElementById('openAddModalBtn');
+    const resetFilterBtn = document.getElementById('resetFilterBtn');
+    const yearFilter = document.getElementById('yearFilter');
+    const typeFilter = document.getElementById('typeFilter');
+    const researchForm = document.getElementById('researchForm');
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    const cancelPasswordBtn = document.getElementById('cancelPasswordBtn');
+    const confirmPasswordBtn = document.getElementById('confirmPasswordBtn');
     
-    document.querySelectorAll('.close-modal, .cancel-btn').forEach(btn => btn.onclick = closeModal);
-    document.querySelectorAll('.close-delete-modal, .cancel-delete-btn').forEach(btn => btn.onclick = closeDeleteModal);
-    document.querySelector('.close-detail').onclick = () => document.getElementById('detailModal').style.display = 'none';
-    document.querySelector('.close-password').onclick = closePasswordModal;
+    if (openAddModalBtn) openAddModalBtn.onclick = openAddModal;
+    if (resetFilterBtn) resetFilterBtn.onclick = resetFilters;
+    if (yearFilter) yearFilter.onchange = renderTable;
+    if (typeFilter) typeFilter.onchange = renderTable;
+    if (researchForm) researchForm.onsubmit = requestSave;
+    if (confirmDeleteBtn) confirmDeleteBtn.onclick = confirmDeleteRequest;
+    if (cancelPasswordBtn) cancelPasswordBtn.onclick = closePasswordModal;
+    if (confirmPasswordBtn) confirmPasswordBtn.onclick = verifyPassword;
     
+    // Đóng modal
+    document.querySelectorAll('.close-modal, .cancel-btn').forEach(btn => {
+        if (btn) btn.onclick = closeModal;
+    });
+    document.querySelectorAll('.close-delete-modal, .cancel-delete-btn').forEach(btn => {
+        if (btn) btn.onclick = closeDeleteModal;
+    });
+    
+    const closeDetail = document.querySelector('.close-detail');
+    if (closeDetail) closeDetail.onclick = () => {
+        const detailModal = document.getElementById('detailModal');
+        if (detailModal) detailModal.style.display = 'none';
+    };
+    
+    const closePassword = document.querySelector('.close-password');
+    if (closePassword) closePassword.onclick = closePasswordModal;
+    
+    // Click outside modal
     window.onclick = (e) => {
         if (e.target.classList.contains('modal')) {
             closeModal();
             closeDeleteModal();
-            document.getElementById('detailModal').style.display = 'none';
+            const detailModal = document.getElementById('detailModal');
+            if (detailModal) detailModal.style.display = 'none';
             closePasswordModal();
         }
     };
     
+    // Chart tabs
     document.querySelectorAll('.chart-tab').forEach(tab => {
         tab.onclick = () => {
             document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));

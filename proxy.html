@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Proxy</title>
+</head>
+<body>
+    <script>
+        // Nhận message từ parent window
+        window.addEventListener('message', async function(event) {
+            if (event.data.type === 'FETCH_DATA') {
+                console.log('Proxy nhận request:', event.data);
+                try {
+                    const response = await fetch(event.data.url, {
+                        method: event.data.method,
+                        headers: event.data.headers,
+                        body: event.data.body
+                    });
+                    const data = await response.json();
+                    window.parent.postMessage({
+                        type: 'FETCH_RESULT',
+                        requestId: event.data.requestId,
+                        data: data
+                    }, '*');
+                } catch(error) {
+                    console.error('Proxy error:', error);
+                    window.parent.postMessage({
+                        type: 'FETCH_ERROR',
+                        requestId: event.data.requestId,
+                        error: error.message
+                    }, '*');
+                }
+            }
+        });
+        
+        // Thông báo proxy đã sẵn sàng
+        window.parent.postMessage({ type: 'PROXY_READY' }, '*');
+    </script>
+</body>
+</html>
