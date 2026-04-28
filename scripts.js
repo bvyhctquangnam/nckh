@@ -3,7 +3,7 @@
 const ADMIN_PASSWORD = "Admin123";
 
 // ⚠️ THAY URL NÀY BẰNG URL CỦA BẠN ⚠️
-const API_URL = "https://script.google.com/macros/s/AKfycbwYf_U1FETC6_tnLLf1y9S0_LIX9fNpURLCP5DISDmA82PjrRGlzlfqKNrMth5Y3DoHwA/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxGBHTUfhKfvIpj-EviijAnqDhMbc08ICcsP0FwQiQ7Nck6YOVJ-OmwoNv7is4hjpTtAQ/exec";
 
 let researchData = [];
 let nextId = 1;
