@@ -1,9 +1,9 @@
 // ==================== QUẢN LÝ NCKH & SÁNG KIẾN ====================
-// Bản đồng bộ trực tiếp với Google Sheets - KHÔNG DÙNG CACHE
+// Bản đồng bộ trực tiếp với Google Sheets
 
 const ADMIN_PASSWORD = "Admin123";
 
-// URL Google Apps Script của bạn
+// URL Google Apps Script MỚI của bạn
 const API_URL = "https://script.google.com/macros/s/AKfycbxltzc7mUkjBy3Ney1140pcmivKddNJoVSNZHQRP-MvyXpulCbGdhlQkq2Ok7Ryib2_cw/exec";
 
 let researchData = [];
@@ -89,12 +89,10 @@ async function fetchDataFromSheet() {
         if (result.success && result.data) {
             researchData = result.data;
             
-            // Đảm bảo mỗi item có cấu trúc đúng
             researchData.forEach(item => {
                 if (!item.extra) item.extra = {};
                 if (!item.extra.files) item.extra.files = [];
                 if (!item.extra.members) item.extra.members = [];
-                // Chuyển đổi year sang number nếu cần
                 if (item.year) item.year = parseInt(item.year);
                 if (item.id) item.id = parseInt(item.id);
             });
@@ -137,6 +135,18 @@ async function callAPI(action, item = null, id = null) {
     } finally {
         showLoading(false);
     }
+}
+
+async function addToSheet(item) {
+    return await callAPI("add", item);
+}
+
+async function updateToSheet(item) {
+    return await callAPI("update", item);
+}
+
+async function deleteFromSheet(id) {
+    return await callAPI("delete", null, id);
 }
 
 // ==================== THÀNH VIÊN ====================
@@ -470,6 +480,16 @@ function showDetail(id) {
 
 function showPasswordModal(action) {
     pendingAction = action;
+    
+    // Đảm bảo đóng tất cả modal khác trước khi hiển thị password modal
+    const researchModal = document.getElementById('researchModal');
+    const deleteModal = document.getElementById('deleteModal');
+    const detailModal = document.getElementById('detailModal');
+    
+    if (researchModal) researchModal.style.display = 'none';
+    if (deleteModal) deleteModal.style.display = 'none';
+    if (detailModal) detailModal.style.display = 'none';
+    
     const passwordInput = document.getElementById('passwordInput');
     const passwordError = document.getElementById('passwordError');
     const passwordModal = document.getElementById('passwordModal');
@@ -487,8 +507,12 @@ function verifyPassword() {
         const passwordModal = document.getElementById('passwordModal');
         if (passwordModal) passwordModal.style.display = 'none';
         
-        if (pendingAction === 'save') saveItemToData();
-        else if (pendingAction === 'delete') executeDeleteItem();
+        if (pendingAction === 'save') {
+            // Mở lại modal research sau khi xác thực thành công
+            saveItemToData();
+        } else if (pendingAction === 'delete') {
+            executeDeleteItem();
+        }
         pendingAction = null;
     } else {
         if (passwordError) passwordError.style.display = 'block';
@@ -504,6 +528,9 @@ function closePasswordModal() {
 // ==================== THÊM/SỬA/XÓA ====================
 
 function openAddModal() {
+    // Đóng password modal nếu đang mở
+    closePasswordModal();
+    
     const modalTitle = document.getElementById('modalTitle');
     const editId = document.getElementById('editId');
     const researchForm = document.getElementById('researchForm');
@@ -540,6 +567,9 @@ function openAddModal() {
 }
 
 function requestEdit(id) {
+    // Đóng password modal nếu đang mở
+    closePasswordModal();
+    
     const item = researchData.find(r => r.id == id);
     if (!item) return;
     
@@ -588,6 +618,9 @@ function requestEdit(id) {
 
 function requestSave(event) {
     event.preventDefault();
+    // Đóng modal research trước khi hiển thị password
+    const researchModal = document.getElementById('researchModal');
+    if (researchModal) researchModal.style.display = 'none';
     showPasswordModal('save');
 }
 
@@ -615,12 +648,14 @@ async function saveItemToData() {
     
     if (!name || !author) {
         alert('Vui lòng nhập đầy đủ thông tin!');
+        // Mở lại modal research
+        const researchModal = document.getElementById('researchModal');
+        if (researchModal) researchModal.style.display = 'flex';
         return;
     }
     
     let result;
     if (id) {
-        // Cập nhật
         const updatedItem = {
             id: parseInt(id),
             year, name, type, author, decisionNumber, fileLink,
@@ -629,30 +664,19 @@ async function saveItemToData() {
         };
         result = await updateToSheet(updatedItem);
     } else {
-        // Thêm mới
         const newItem = { year, name, type, author, decisionNumber, fileLink, extra: extraData };
         result = await addToSheet(newItem);
     }
     
     if (result?.success) {
-        closeModal();
-        await refreshAll(); // Tải lại dữ liệu mới từ Sheets
+        await refreshAll();
         alert(id ? 'Cập nhật thành công!' : 'Thêm mới thành công!');
     } else {
         alert('Lỗi: ' + (result?.error || 'Không thể lưu dữ liệu'));
+        // Mở lại modal research nếu lưu thất bại
+        const researchModal = document.getElementById('researchModal');
+        if (researchModal) researchModal.style.display = 'flex';
     }
-}
-
-async function addToSheet(item) {
-    return await callAPI("add", item);
-}
-
-async function updateToSheet(item) {
-    return await callAPI("update", item);
-}
-
-async function deleteFromSheet(id) {
-    return await callAPI("delete", null, id);
 }
 
 function requestDelete(id, name) {
@@ -673,7 +697,7 @@ async function executeDeleteItem() {
     if (deleteTargetId) {
         const result = await deleteFromSheet(deleteTargetId);
         if (result?.success) {
-            await refreshAll(); // Tải lại dữ liệu mới từ Sheets
+            await refreshAll();
             alert('Xóa thành công!');
         } else {
             alert('Lỗi: ' + (result?.error || 'Không thể xóa'));
@@ -709,7 +733,6 @@ async function refreshAll() {
     updateCharts(activeTab ? activeTab.dataset.metric : 'total');
     renderTable();
     
-    // Cập nhật dropdown năm
     const years = [...new Set(researchData.map(r => r.year))].sort((a, b) => b - a);
     const yearSelect = document.getElementById('yearFilter');
     if (yearSelect) {

@@ -132,3 +132,29 @@
             .filter-bar { justify-content: center; flex-wrap: wrap; }
             .data-table th, .data-table td { padding: 6px 3px; font-size: 0.65rem; }
         }
+/* Đảm bảo password modal hiển thị trên tất cả */
+#passwordModal {
+    z-index: 10000 !important;
+}
+
+#passwordModal .modal-content {
+    z-index: 10001 !important;
+    position: relative;
+}
+
+/* Tất cả modal có z-index tăng dần */
+.modal {
+    z-index: 1000;
+}
+
+#researchModal {
+    z-index: 1001;
+}
+
+#deleteModal {
+    z-index: 1002;
+}
+
+#detailModal {
+    z-index: 1003;
+}
