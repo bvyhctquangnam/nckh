@@ -47,7 +47,7 @@
         .add-btn { background: linear-gradient(135deg,#2dd4bf,#0e7490); border: none; padding: 6px 14px; border-radius: 30px; color: white; font-weight: 600; font-size: 0.7rem; cursor: pointer; transition: all 0.2s; }
         .add-btn:hover { transform: scale(1.02); box-shadow: 0 0 8px rgba(45,212,191,0.3); }
         
-        .table-wrapper { max-height: 380px; overflow-y: auto; border-radius: 10px; scrollbar-width: thin; }
+        .table-wrapper { max-height: 340px; overflow-y: auto; border-radius: 10px; scrollbar-width: thin; }
         .data-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
         .data-table th { position: sticky; top: 0; background: #0a1a1a; padding: 8px 6px; color: #aaccc0; font-weight: 600; z-index: 10; }
         .data-table td { padding: 6px 6px; border-bottom: 1px solid #1a3a3a; text-align: center; }
