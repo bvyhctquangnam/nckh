@@ -2,8 +2,8 @@
 
 const ADMIN_PASSWORD = "Admin123";
 
-// ⚠️ THAY URL NÀY BẰNG URL APP SCRIPT CỦA BẠN ⚠️
-const API_URL = "https://script.google.com/macros/s/AKfycbyCv4LlT_eMObb-uBBB8DdDfz0ZHrfTUyvOBRd9N9kC0rjmWizj6SMBzuBx1iDzpByMwg/exec";
+// ⚠️ THAY URL NÀY BẰNG URL WEB APP CỦA BẠN (SAU KHI DEPLOY) ⚠️
+const API_URL = "https://script.google.com/macros/s/AKfycbwHb3T063nc6_nClAFJ2GBEQcvje_-pKwBVCkOqFGxCr99QUgeM7smb7SLZW-8d8WTzOg/exec";
 
 let researchData = [];
 let nextId = 1;
@@ -18,13 +18,30 @@ let pendingId = null;
 async function fetchDataFromSheet() {
     try {
         showLoading(true);
-        const response = await fetch(API_URL);
+        
+        // Thêm timestamp để tránh cache
+        const url = `${API_URL}?t=${Date.now()}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-cache'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const result = await response.json();
         
         if (result.success && result.data) {
             researchData = result.data;
             researchData = researchData.filter(r => r && typeof r === 'object');
-            nextId = researchData.length ? Math.max(...researchData.map(r => parseInt(r.id))) + 1 : 1;
+            
+            if (researchData.length > 0) {
+                nextId = Math.max(...researchData.map(r => parseInt(r.id))) + 1;
+            } else {
+                nextId = 1;
+            }
             
             researchData.forEach(item => {
                 if (!item.extra) item.extra = {};
@@ -34,6 +51,7 @@ async function fetchDataFromSheet() {
             
             saveToLocalStorage();
         } else {
+            console.error('API returned error:', result);
             loadFromLocalStorage();
         }
     } catch (e) {
@@ -63,10 +81,10 @@ function loadFromLocalStorage() {
         // Dữ liệu mẫu ban đầu
         researchData = [
             { id: 1, year: 2025, name: "Nghiên cứu mất ngủ", type: "NCKH", author: "Nguyễn Quang Ngọc", decisionNumber: "", fileLink: "", extra: { members: [{ name: "Trần Thị B", percent: "30" }, { name: "Lê Văn C", percent: "20" }], domain: "Điều trị", specialty: "Y học cổ truyền", registerDate: new Date().toISOString(), resultDuyet: "Thông qua", resultNghiemThu: "Thông qua", unit: "Bệnh viện Y học cổ truyền Quảng Nam", level: "Cơ sở", files: [] } },
-            { id: 2, year: 2024, name: "Nghiên cứu G về y học cổ truyền", type: "SKKT", author: "Nguyễn Văn Dũng", decisionNumber: "QĐ/G/2024", fileLink: "#", extra: {} },
-            { id: 3, year: 2022, name: "Sáng kiến B: Cải tiến quy trình", type: "SKKT", author: "Nguyễn Văn Dũng", extra: {} },
-            { id: 4, year: 2021, name: "Nghiên cứu A về phục hồi chức năng", type: "SKKT", author: "Nguyễn Văn A", decisionNumber: "QĐ/A/2021", fileLink: "#", extra: {} },
-            { id: 5, year: 2021, name: "Nghiên cứu C về hiệu quả điều trị", type: "SKKT", author: "Nguyễn Thị Ánh Quang", fileLink: "#", extra: {} },
+            { id: 2, year: 2024, name: "Nghiên cứu G về y học cổ truyền", type: "SK", author: "Nguyễn Văn Dũng", decisionNumber: "QĐ/G/2024", fileLink: "#", extra: {} },
+            { id: 3, year: 2022, name: "Sáng kiến B: Cải tiến quy trình", type: "SK", author: "Nguyễn Văn Dũng", extra: {} },
+            { id: 4, year: 2021, name: "Nghiên cứu A về phục hồi chức năng", type: "SK", author: "Nguyễn Văn A", decisionNumber: "QĐ/A/2021", fileLink: "#", extra: {} },
+            { id: 5, year: 2021, name: "Nghiên cứu C về hiệu quả điều trị", type: "SK", author: "Nguyễn Thị Ánh Quang", fileLink: "#", extra: {} },
             { id: 6, year: 2020, name: "Nghiên cứu đau lưng", type: "NCKH", author: "Cao Văn Trọng", extra: {} }
         ];
         nextId = 7;
@@ -75,60 +93,55 @@ function loadFromLocalStorage() {
             if (!item.extra.files) item.extra.files = [];
             if (!item.extra.members) item.extra.members = [];
         });
+        saveToLocalStorage();
     }
 }
 
 // ==================== CRUD VỚI SHEET ====================
 
-async function addToSheet(item) {
+async function callAPI(action, item = null, id = null) {
     try {
         showLoading(true);
+        
+        let body = { action: action };
+        if (item) body.item = item;
+        if (id) body.id = id;
+        
         const response = await fetch(API_URL, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "add", item: item })
+            mode: 'cors',
+            headers: { 
+                "Content-Type": "application/json",
+                "Accept": "application/json"
+            },
+            body: JSON.stringify(body)
         });
-        return await response.json();
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        return result;
+        
     } catch (e) {
-        console.error('Add error:', e);
+        console.error(`${action} error:`, e);
         return { success: false, error: e.toString() };
     } finally {
         showLoading(false);
     }
+}
+
+async function addToSheet(item) {
+    return await callAPI("add", item);
 }
 
 async function updateToSheet(item) {
-    try {
-        showLoading(true);
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "update", item: item })
-        });
-        return await response.json();
-    } catch (e) {
-        console.error('Update error:', e);
-        return { success: false, error: e.toString() };
-    } finally {
-        showLoading(false);
-    }
+    return await callAPI("update", item);
 }
 
 async function deleteFromSheet(id) {
-    try {
-        showLoading(true);
-        const response = await fetch(API_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "delete", id: id })
-        });
-        return await response.json();
-    } catch (e) {
-        console.error('Delete error:', e);
-        return { success: false, error: e.toString() };
-    } finally {
-        showLoading(false);
-    }
+    return await callAPI("delete", null, id);
 }
 
 // ==================== THÀNH VIÊN ====================
@@ -233,7 +246,10 @@ function toggleScienceFields() {
 }
 
 function showLoading(show) {
-    document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none';
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.style.display = show ? 'flex' : 'none';
+    }
 }
 
 function escapeHtml(s) {
@@ -249,13 +265,13 @@ function generateProjectCode(year, id) {
 function getStats() {
     const total = researchData.length;
     const nckh = researchData.filter(r => r.type === 'NCKH').length;
-    const skkt = researchData.filter(r => r.type === 'SKKT').length;
+    const skkt = researchData.filter(r => r.type === 'SK').length;
     const years = [...new Set(researchData.map(r => r.year))].sort();
     const byYear = years.map(y => ({
         year: y,
         total: researchData.filter(r => r.year === y).length,
         nckh: researchData.filter(r => r.year === y && r.type === 'NCKH').length,
-        skkt: researchData.filter(r => r.year === y && r.type === 'SKKT').length
+        skkt: researchData.filter(r => r.year === y && r.type === 'SK').length
     }));
     return { total, nckh, skkt, byYear };
 }
@@ -277,7 +293,8 @@ function updateCharts(metric = 'total') {
     const colors = { total: '#2dd4bf', nckh: '#a78bfa', skkt: '#facc15' };
     
     if (currentChart) currentChart.destroy();
-    currentChart = new Chart(document.getElementById('trendChart'), {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    currentChart = new Chart(ctx, {
         type: 'line',
         data: {
             labels: years,
@@ -296,7 +313,8 @@ function updateCharts(metric = 'total') {
     });
     
     if (currentPieChart) currentPieChart.destroy();
-    currentPieChart = new Chart(document.getElementById('pieChart'), {
+    const pieCtx = document.getElementById('pieChart').getContext('2d');
+    currentPieChart = new Chart(pieCtx, {
         type: 'doughnut',
         data: {
             labels: ['Nghiên cứu khoa học', 'Sáng kiến'],
